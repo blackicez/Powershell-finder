@@ -13,6 +13,186 @@ let historyIndex = -1;
 // Store currently displayed commands
 let currentCommands = [];
 
+// Helper functions
+function closeDetails() {
+  document.getElementById('details-container').classList.add('hidden');
+}
+
+async function searchCommands(query = '') {
+  try {
+    const loadingIndicator = document.getElementById('loading');
+    const resultsContainer = document.getElementById('results');
+    
+    loadingIndicator.classList.remove('hidden');
+    resultsContainer.innerHTML = '';
+    
+    let url = `${API_URL}/api/commands`;
+    let params = { q: query };
+    
+    if (activeCategory && activeCategory !== 'all') {
+      params.category = activeCategory;
+    }
+    
+    const response = await axios.get(url, { params });
+    
+    displayResults(response.data);
+  } catch (error) {
+    console.error('Error fetching commands:', error);
+    document.getElementById('results').innerHTML = `<div class="error">Failed to fetch commands. Please try again.</div>`;
+  } finally {
+    document.getElementById('loading').classList.add('hidden');
+  }
+}
+
+// Function to display search results
+function displayResults(commands) {
+  const resultsContainer = document.getElementById('results');
+  
+  if (commands.length === 0) {
+    resultsContainer.innerHTML = `<div class="no-results">No commands found. Try a different search term.</div>`;
+    return;
+  }
+  
+  // Store commands for reference when showing details
+  currentCommands = commands;
+  
+  resultsContainer.innerHTML = commands.map((cmd, index) => `
+    <div class="command-card">
+      <h3 class="command-name">${cmd.name}</h3>
+      <p class="command-description">${cmd.description}</p>
+      <button class="toggle-details" data-index="${index}">Show Details</button>
+    </div>
+  `).join('');
+  
+  // Add event listeners to toggle buttons
+  document.querySelectorAll('.toggle-details').forEach(button => {
+    button.addEventListener('click', () => {
+      const index = parseInt(button.getAttribute('data-index'));
+      showCommandDetails(index);
+    });
+  });
+}
+
+// Function to show command details in the details panel
+function showCommandDetails(index) {
+  const command = currentCommands[index];
+  const detailsTitle = document.getElementById('details-title');
+  const detailsContent = document.getElementById('details-content');
+  const detailsContainer = document.getElementById('details-container');
+  
+  // Update details panel content
+  detailsTitle.textContent = command.name;
+  
+  detailsContent.innerHTML = `
+    <p class="command-description">${command.description}</p>
+    <div class="usage">
+      <h4>Usage:</h4>
+      <pre>${command.usage}</pre>
+    </div>
+    <div class="example">
+      <h4>Example:</h4>
+      <pre>${command.examples}</pre>
+    </div>
+  `;
+  
+  // Show details panel
+  detailsContainer.classList.remove('hidden');
+}
+
+// PowerShell terminal functionality
+function appendToOutput(text, className = '') {
+  const commandOutput = document.getElementById('test-command-output');
+  const prompt = 'PS C:\\Users\\user> ';
+  const newContent = className ? 
+    `${commandOutput.textContent}${text}\n` :
+    `${commandOutput.textContent}${prompt}${text}\n`;
+  commandOutput.textContent = newContent;
+  commandOutput.scrollTop = commandOutput.scrollHeight;
+}
+
+function simulatePowerShellCommand(command) {
+  if (!command.trim()) return;
+
+  commandHistory.push(command);
+  historyIndex = commandHistory.length;
+
+  // Basic PowerShell command simulation
+  const cmd = command.toLowerCase().trim();
+  let output = '';
+
+  if (cmd === 'cls' || cmd === 'clear') {
+    document.getElementById('test-command-output').textContent = '';
+    return;
+  }
+
+  if (cmd === 'exit') {
+    appendToOutput('Closing PowerShell session...');
+    setTimeout(() => {
+      document.querySelector('.dev-test-env').style.display = 'none';
+    }, 1000);
+    return;
+  }
+
+  if (cmd.startsWith('get-')) {
+    output = `NAME                           VALUE\n----                           -----\nExample-Item                   Sample Value`;
+  } else if (cmd === 'pwd' || cmd === 'get-location') {
+    output = 'Path\n----\nC:\\Users\\user';
+  } else if (cmd === 'ls' || cmd === 'dir' || cmd === 'get-childitem') {
+    output = `
+    Directory: C:\\Users\\user
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+d-----        12/31/2023  10:00 PM                Documents
+d-----        12/31/2023  10:00 PM                Downloads
+d-----        12/31/2023  10:00 PM                Desktop`;
+  } else if (cmd === 'help' || cmd === 'get-help') {
+    output = `
+TOPIC\n    Windows PowerShell Help System
+
+SHORT DESCRIPTION\n    Displays help about Windows PowerShell cmdlets and concepts.`;
+  } else {
+    output = `The term '${command}' is not recognized as the name of a cmdlet, function, script file, or operable program.`;
+  }
+
+  appendToOutput(command);
+  appendToOutput(output, 'ps-output');
+}
+
+// Function to fetch categories from the API
+async function fetchCategories() {
+  try {
+    const response = await axios.get(`${API_URL}/api/categories`);
+    categories = response.data;
+    renderCategoryTabs();
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+  }
+}
+
+// Function to render category tabs
+function renderCategoryTabs() {
+  const categoriesContainer = document.getElementById('categories-container');
+  const tabsHtml = categories.map(category => 
+    `<button class="category-tab" data-category="${category}">${category}</button>`
+  ).join('');
+  
+  // Append new category tabs after the "All Commands" tab
+  const allCommandsTab = categoriesContainer.querySelector('[data-category="all"]');
+  allCommandsTab.insertAdjacentHTML('afterend', tabsHtml);
+  
+  // Add event listeners to category tabs
+  document.querySelectorAll('.category-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.category-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      
+      activeCategory = tab.dataset.category === 'all' ? '' : tab.dataset.category;
+      searchCommands(document.getElementById('search-input').value.trim());
+    });
+  });
+}
+
 // Initialize the app
 function initApp() {
   // Create the app HTML structure
@@ -81,15 +261,8 @@ Try the new cross-platform PowerShell https://aka.ms/pscore6
   // Get DOM elements after they've been created
   const searchInput = document.getElementById('search-input');
   const searchButton = document.getElementById('search-button');
-  const resultsContainer = document.getElementById('results');
-  const loadingIndicator = document.getElementById('loading');
-  const categoriesContainer = document.getElementById('categories-container');
-  const detailsContainer = document.getElementById('details-container');
-  const detailsTitle = document.getElementById('details-title');
-  const detailsContent = document.getElementById('details-content');
   const closeDetailsButton = document.getElementById('close-details');
   const commandInput = document.getElementById('test-command-input');
-  const commandOutput = document.getElementById('test-command-output');
   const toggleDevEnv = document.getElementById('toggle-dev-env');
   const devTestEnv = document.querySelector('.dev-test-env');
   const closeDevTest = document.getElementById('close-dev-test');
@@ -156,177 +329,6 @@ Try the new cross-platform PowerShell https://aka.ms/pscore6
   setTimeout(() => {
     document.querySelector('.loading-screen').classList.add('hidden');
   }, 2000);
-  
-  // Function to fetch categories from the API
-  async function fetchCategories() {
-    try {
-      const response = await axios.get(`${API_URL}/api/categories`);
-      categories = response.data;
-      renderCategoryTabs();
-    } catch (error) {
-      console.error('Error fetching categories:', error);
-    }
-  }
-
-  // Function to render category tabs
-  function renderCategoryTabs() {
-    const tabsHtml = categories.map(category => 
-      `<button class="category-tab" data-category="${category}">${category}</button>`
-    ).join('');
-    
-    // Append new category tabs after the "All Commands" tab
-    const allCommandsTab = categoriesContainer.querySelector('[data-category="all"]');
-    allCommandsTab.insertAdjacentHTML('afterend', tabsHtml);
-    
-    // Add event listeners to category tabs
-    document.querySelectorAll('.category-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.category-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        
-        activeCategory = tab.dataset.category === 'all' ? '' : tab.dataset.category;
-        searchCommands(searchInput.value.trim());
-      });
-    });
-  }
-
-  // Function to fetch commands from the API
-  async function searchCommands(query = '') {
-    try {
-      loadingIndicator.classList.remove('hidden');
-      resultsContainer.innerHTML = '';
-      
-      let url = `${API_URL}/api/commands`;
-      let params = { q: query };
-      
-      if (activeCategory && activeCategory !== 'all') {
-        params.category = activeCategory;
-      }
-      
-      const response = await axios.get(url, { params });
-      
-      displayResults(response.data);
-    } catch (error) {
-      console.error('Error fetching commands:', error);
-      resultsContainer.innerHTML = `<div class="error">Failed to fetch commands. Please try again.</div>`;
-    } finally {
-      loadingIndicator.classList.add('hidden');
-    }
-  }
-
-  // Function to display search results
-  function displayResults(commands) {
-    if (commands.length === 0) {
-      resultsContainer.innerHTML = `<div class="no-results">No commands found. Try a different search term.</div>`;
-      return;
-    }
-    
-    // Store commands for reference when showing details
-    currentCommands = commands;
-    
-    resultsContainer.innerHTML = commands.map((cmd, index) => `
-      <div class="command-card">
-        <h3 class="command-name">${cmd.name}</h3>
-        <p class="command-description">${cmd.description}</p>
-        <button class="toggle-details" data-index="${index}">Show Details</button>
-      </div>
-    `).join('');
-    
-    // Add event listeners to toggle buttons
-    document.querySelectorAll('.toggle-details').forEach(button => {
-      button.addEventListener('click', () => {
-        const index = parseInt(button.getAttribute('data-index'));
-        showCommandDetails(index);
-      });
-    });
-  }
-
-  // Function to show command details in the details panel
-  function showCommandDetails(index) {
-    const command = currentCommands[index];
-    
-    // Update details panel content
-    detailsTitle.textContent = command.name;
-    
-    detailsContent.innerHTML = `
-      <p class="command-description">${command.description}</p>
-      <div class="usage">
-        <h4>Usage:</h4>
-        <pre>${command.usage}</pre>
-      </div>
-      <div class="example">
-        <h4>Example:</h4>
-        <pre>${command.examples}</pre>
-      </div>
-    `;
-    
-    // Show details panel
-    detailsContainer.classList.remove('hidden');
-  }
-
-  // Function to close the details panel
-  function closeDetails() {
-    detailsContainer.classList.add('hidden');
-  }
-
-  // PowerShell terminal functionality
-  function appendToOutput(text, className = '') {
-    const prompt = 'PS C:\\Users\\user> ';
-    const newContent = className ? 
-      `${commandOutput.textContent}${text}\n` :
-      `${commandOutput.textContent}${prompt}${text}\n`;
-    commandOutput.textContent = newContent;
-    commandOutput.scrollTop = commandOutput.scrollHeight;
-  }
-
-  function simulatePowerShellCommand(command) {
-    if (!command.trim()) return;
-
-    commandHistory.push(command);
-    historyIndex = commandHistory.length;
-
-    // Basic PowerShell command simulation
-    const cmd = command.toLowerCase().trim();
-    let output = '';
-
-    if (cmd === 'cls' || cmd === 'clear') {
-      commandOutput.textContent = '';
-      return;
-    }
-
-    if (cmd === 'exit') {
-      appendToOutput('Closing PowerShell session...');
-      setTimeout(() => {
-        document.querySelector('.dev-test-env').style.display = 'none';
-      }, 1000);
-      return;
-    }
-
-    if (cmd.startsWith('get-')) {
-      output = `NAME                           VALUE\n----                           -----\nExample-Item                   Sample Value`;
-    } else if (cmd === 'pwd' || cmd === 'get-location') {
-      output = 'Path\n----\nC:\\Users\\user';
-    } else if (cmd === 'ls' || cmd === 'dir' || cmd === 'get-childitem') {
-      output = `
-    Directory: C:\\Users\\user
-
-Mode                 LastWriteTime         Length Name
-----                 -------------         ------ ----
-d-----        12/31/2023  10:00 PM                Documents
-d-----        12/31/2023  10:00 PM                Downloads
-d-----        12/31/2023  10:00 PM                Desktop`;
-    } else if (cmd === 'help' || cmd === 'get-help') {
-      output = `
-TOPIC\n    Windows PowerShell Help System
-
-SHORT DESCRIPTION\n    Displays help about Windows PowerShell cmdlets and concepts.`;
-    } else {
-      output = `The term '${command}' is not recognized as the name of a cmdlet, function, script file, or operable program.`;
-    }
-
-    appendToOutput(command);
-    appendToOutput(output, 'ps-output');
-  }
   
   // Fetch categories and load all commands
   fetchCategories();
